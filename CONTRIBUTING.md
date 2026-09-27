@@ -29,7 +29,8 @@ Read [`plugins/jev/GOTCHAS.md`](plugins/jev/GOTCHAS.md) before changing a hook o
 
 ## Test
 
-Neither test needs an Anthropic or TypeSafe key.
+Neither test needs an Anthropic or TypeSafe key. CI (`.github/workflows/ci.yml`) runs all four
+checks on every push to `main` and every pull request.
 
 ```bash
 # 1. Unit tests: every hook with a mocked Jev transport, in a throwaway git repo.

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+      - name: shellcheck
+        run: shellcheck plugins/jev/scripts/*.sh tests/*.sh
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # setup.sh requires 3.10+
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: plugins/jev/requirements.txt
+      - run: pip install -r plugins/jev/requirements.txt
+      - run: python tests/test_hooks.py
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: Validate manifests, skills and agents
+        run: claude plugin validate .
+      - name: End-to-end test against a fake Messages API
+        run: bash tests/e2e.sh
