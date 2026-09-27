@@ -1,0 +1,6 @@
+{
+  "mode": "shadow",
+  "permission": {
+    "extra_deny_patterns": ["(echo|printf|printenv|env)\\b[^|;&]*TYPESAFE_API_KEY"]
+  }
+}

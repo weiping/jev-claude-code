@@ -1,0 +1,13 @@
+{
+  "unit-tests": {"what": "Offline hook tests with mocked Jev in a throwaway git repo.",
+                 "how": "~/.claude/plugins/data/jev-jev-engineering/venv/bin/python tests/test_hooks.py"},
+  "e2e": {"what": "Install the plugin into an isolated CLAUDE_CONFIG_DIR and drive real Claude Code against a scripted fake model API.",
+          "how": "bash tests/e2e.sh  (uses port 8765, override with E2E_PORT)"},
+  "validate": {"what": "Validate the marketplace and plugin manifests.",
+               "how": "claude plugin validate ."},
+  "stats": {"what": "Summarize this project's Jev decision log.",
+            "how": "~/.claude/plugins/data/jev-jev-engineering/venv/bin/python plugins/jev/scripts/stats.py"},
+  "reinstall": {"what": "Refresh the installed plugin from GitHub after pushing changes.",
+                "how": "claude plugin marketplace update jev-engineering && claude plugin update jev@jev-engineering  (changes the user's global Claude Code install)"},
+  "none": {"what": "None of the project tools is relevant to this request.", "how": ""}
+}
