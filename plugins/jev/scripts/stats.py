@@ -13,7 +13,7 @@ path = jevlib.LOGS / "decisions.jsonl"
 if not path.exists():
     print("No Jev decisions logged yet.")
     raise SystemExit
-rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 calls = [r for r in rows if "latency_ms" in r]
 by_hook = defaultdict(list)
 for r in calls:

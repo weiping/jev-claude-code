@@ -45,7 +45,7 @@ def decision(o):
 
 def calls(hook):
     p = tmp / ".claude/jev/logs/decisions.jsonl"
-    return sum(1 for l in p.read_text().splitlines() if json.loads(l).get("hook") == hook and "latency_ms" in l) \
+    return sum(1 for line in p.read_text().splitlines() if json.loads(line).get("hook") == hook and "latency_ms" in line) \
         if p.exists() else 0
 
 

@@ -5,7 +5,6 @@ Everything is decided in a single Jev request. The result is injected as additio
 and also pinned to state, so session_context.py can re-inject it after a compaction.
 """
 import fnmatch
-import json
 import subprocess
 import sys
 from pathlib import Path

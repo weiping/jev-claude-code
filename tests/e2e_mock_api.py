@@ -1,5 +1,7 @@
 """Minimal fake Anthropic Messages API that scripts tool calls, to drive the real Claude Code binary."""
-import json, sys, itertools
+import json
+import sys
+import itertools
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCRIPT_PATH = sys.argv[2]  # re-read on every request, so a test can switch scripts
@@ -15,13 +17,20 @@ def main_step(body):
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
-        self.send_response(200); self.send_header("content-type","application/json"); self.end_headers(); self.wfile.write(b"{}")
+        self.send_response(200)
+        self.send_header("content-type","application/json")
+        self.end_headers()
+        self.wfile.write(b"{}")
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["content-length"])) or b"{}")
-        LOG.write(json.dumps({"path": self.path, "body": body}) + "\n"); LOG.flush()
+        LOG.write(json.dumps({"path": self.path, "body": body}) + "\n")
+        LOG.flush()
         if not self.path.startswith("/v1/messages") or "count_tokens" in self.path:
-            self.send_response(200); self.send_header("content-type","application/json"); self.end_headers()
-            self.wfile.write(json.dumps({"input_tokens": 100}).encode()); return
+            self.send_response(200)
+            self.send_header("content-type","application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"input_tokens": 100}).encode())
+            return
         msgs = json.dumps(body.get("messages", [])[:1])
         is_main = any(t.get("name") == "Bash" for t in body.get("tools", []))
         if "SUBAGENT_TASK" in msgs:
@@ -41,9 +50,14 @@ class H(BaseHTTPRequestHandler):
             content = [{**block, "input": step["input"]}] if "tool" in step else [{"type": "text", "text": step["text"]}]
             msg = {"id": mid, "type": "message", "role": "assistant", "model": body.get("model"), "content": content,
                    "stop_reason": stop, "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 5}}
-            self.send_response(200); self.send_header("content-type","application/json"); self.end_headers()
-            self.wfile.write(json.dumps(msg).encode()); return
-        self.send_response(200); self.send_header("content-type", "text/event-stream"); self.end_headers()
+            self.send_response(200)
+            self.send_header("content-type","application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(msg).encode())
+            return
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.end_headers()
         def ev(t, d): self.wfile.write(f"event: {t}\ndata: {json.dumps(d)}\n\n".encode())
         ev("message_start", {"type": "message_start", "message": {"id": mid, "type": "message", "role": "assistant",
             "model": body.get("model"), "content": [], "stop_reason": None, "stop_sequence": None,
