@@ -60,6 +60,9 @@ deep-merged on top (lists are replaced, so add project deny rules under
 
 ## Develop and test
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+[plugins/jev/GOTCHAS.md](plugins/jev/GOTCHAS.md) for behavior that is easy to get wrong.
+
 ```bash
 python3 -m venv /tmp/jev-venv && /tmp/jev-venv/bin/pip install -r plugins/jev/requirements.txt
 /tmp/jev-venv/bin/python tests/test_hooks.py   # offline unit tests, mocked Jev

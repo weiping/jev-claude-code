@@ -1,8 +1,7 @@
 [
-  {"id": "readme-dev-guide", "load": "README.md",
-   "when_files": ["plugins/jev/**", "tests/**", ".claude-plugin/**"]},
-  {"id": "default-config", "load": "plugins/jev/config/default.json",
-   "when_jev": "The request is about Jev thresholds, deny or readonly patterns, routing models, or other plugin configuration values."},
-  {"id": "hook-wiring", "load": "plugins/jev/hooks/hooks.json",
-   "when_jev": "The request adds, removes, or changes which Claude Code hook events or tool matchers trigger a Jev script."}
+  {"id": "readme-dev-guide", "load": "README.md", "when_jev": "The request is about installing, setting up, or explaining what the Jev plugin does to users."},
+  {"id": "hook-gotchas", "load": "plugins/jev/GOTCHAS.md", "when_files": ["plugins/jev/scripts/*", "plugins/jev/hooks/*", "plugins/jev/config/*"]},
+  {"id": "contributing", "load": "CONTRIBUTING.md", "when_jev": "The request is about testing, trying out, releasing, or publishing changes to this plugin."},
+  {"id": "default-config", "load": "plugins/jev/config/default.json", "when_jev": "The request is about Jev thresholds, deny or readonly patterns, routing models, or other plugin configuration values."},
+  {"id": "hook-wiring", "load": "plugins/jev/hooks/hooks.json", "when_jev": "The request adds, removes, or changes which Claude Code hook events or tool matchers trigger a Jev script."}
 ]
