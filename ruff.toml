@@ -1,0 +1,6 @@
+# setup.sh requires Python 3.10+ for the plugin venv.
+target-version = "py310"
+
+[lint]
+# Ruff's defaults (pyflakes + pycodestyle errors), spelled out so upgrades don't change them.
+select = ["E4", "E7", "E9", "F"]

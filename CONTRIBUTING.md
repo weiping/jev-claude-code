@@ -44,6 +44,9 @@ bash tests/e2e.sh
 
 # 3. Manifests, skills and agents.
 claude plugin validate .
+
+# 4. Lint (config in ruff.toml).
+ruff check .
 ```
 
 `e2e.sh` needs `claude` and `python3` on `PATH`, network access for the first
@@ -73,6 +76,6 @@ cache is keyed by version.
 ## Release
 
 1. Bump `version` in `plugins/jev/.claude-plugin/plugin.json`.
-2. Run the three checks above.
+2. Run the four checks above.
 3. Commit with a conventional message (`feat:`, `fix:`, `docs:`, `chore:` ...).
 4. `claude plugin tag .` to create the `jev--v<version>` tag, then push the branch and the tag.
