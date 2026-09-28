@@ -35,27 +35,13 @@ def touched_files(root: Path) -> list[str]:
     return files
 
 
-def jev_projects() -> list[Path]:
-    """The session's own project root (always first), plus any direct child directory that
-    carries its own `.claude/jev/`."""
-    roots = [jevlib.PROJECT]
-    try:
-        children = sorted(p for p in jevlib.PROJECT.iterdir() if p.is_dir())
-    except OSError:
-        children = []
-    for d in children:
-        if d != jevlib.PROJECT and (d / ".claude" / "jev").is_dir():
-            roots.append(d)
-    return roots
-
-
 def main() -> None:
     data = jevlib.read_input()
     prompt = data.get("prompt", "")
     jevlib.state_write("last_prompt.txt", prompt)  # 其他 hook 用它当"当前查询"
 
     projects = []  # [(root, rules, tools, touched_files)]
-    for root in jev_projects():
+    for root in jevlib.jev_projects():
         pj = root / ".claude" / "jev"
         rules = jevlib.project_file("rules.json", [], project_jev=pj)
         tools = jevlib.project_file("tools.json", {}, project_jev=pj)

@@ -222,4 +222,13 @@ run("agent_done", {**base, "hook_event_name": "PostToolUse", "tool_name": "Agent
                                      "content": [{"type": "text", "text": "Restarted."}]}})
 assert json.loads((sib / ".claude/jev/state/subgoals.json").read_text())["sib1"]["status"] == "done"
 print("ok  agent_router + agent_done: dedupe state for a sibling-scoped dispatch stays in the sibling")
+
+# 6d. stats.py: with a sibling present, prints one labeled section per project instead of a
+#     single flat summary — the sibling's own permission_gate/agent_router activity above must
+#     show up here too, not just in its own decisions.jsonl.
+r = subprocess.run([sys.executable, str(SCRIPTS / "stats.py")], capture_output=True, text=True, env=env, cwd=tmp)
+assert r.returncode == 0
+assert f"== {tmp} (session root) ==" in r.stdout and f"== {sib} (sibling) ==" in r.stdout
+assert r.stdout.index(str(tmp)) < r.stdout.index(str(sib))  # 会话根总是排在第一个
+print("ok  stats.py: one labeled section per project when a sibling exists")
 shutil.rmtree(tmp)

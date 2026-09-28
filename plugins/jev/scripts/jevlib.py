@@ -97,6 +97,25 @@ def project_file(name: str, default, project_jev: Path | None = None):
     return _load((project_jev or PROJECT_JEV) / name, default)
 
 
+def jev_projects() -> list[Path]:
+    """The session's own project root (always first), plus any direct child directory that
+    carries its own `.claude/jev/` — a sibling checkout in a meta-workspace, its own
+    independent git repository rather than part of PROJECT's own git tree. Deliberately one
+    level deep only, to stay fast and match the common "meta-repo with sibling repos" shape;
+    it does not recurse further. Shared by prompt_context.py (matching each project's own
+    rules.json/tools.json against its own changed files) and stats.py (summarizing every
+    project's own decisions.jsonl in one place)."""
+    roots = [PROJECT]
+    try:
+        children = sorted(p for p in PROJECT.iterdir() if p.is_dir())
+    except OSError:
+        children = []
+    for d in children:
+        if d != PROJECT and (d / ".claude" / "jev").is_dir():
+            roots.append(d)
+    return roots
+
+
 def mode(cfg: dict | None = None) -> str:
     """shadow: ask Jev and log, never change Claude Code's behavior. enforce: act on answers."""
     return os.environ.get("JEV_MODE", (cfg if cfg is not None else CFG).get("mode", "shadow"))
