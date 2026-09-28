@@ -61,6 +61,29 @@ the config, or the install flow.
 - **The project root comes from `CLAUDE_PROJECT_DIR`, then `git rev-parse --show-toplevel`.**
   Running a script by hand from a nested repository picks the nested repo's `.claude/jev/`.
   Set `CLAUDE_PROJECT_DIR` when you run `stats.py` or `snapshot.py` manually.
+- **`CLAUDE_PROJECT_DIR` is fixed for the whole session — `jevlib.resolve(hint)` is how
+  per-invocation hooks stop being stuck with it.** `permission_gate`, `agent_router`,
+  `agent_done` and `output_ladder` all call `jevlib.resolve(data.get("cwd"))` first thing and
+  use the returned `Resolved.cfg`/`.state`/`.logs`/`.project` instead of the module-level
+  `jevlib.CFG`/`STATE`/`LOGS`/`PROJECT` — it walks up from `cwd` looking for the nearest
+  `.claude/jev/`, falling back to the session root when none is found. This matters in a
+  meta-workspace whose sibling repos are their own independent git checkouts (not part of the
+  meta-repo's own git tree, typically `.gitignore`d out of it): a Bash command or a dispatched
+  Agent that runs with `cwd` inside such a sibling picks up *that sibling's own*
+  `config.json`/state/logs, even though `CLAUDE_PROJECT_DIR` never changes. `agent_router` and
+  `agent_done` must resolve from the *same* hint or the dedupe registry silently splits across
+  two `subgoals.json` files and never finds the entry the other one wrote.
+- **`prompt_context` cannot use `jevlib.resolve()` — it has no single-file hint at
+  `UserPromptSubmit` time — so it does its own multi-root pass instead.** `jev_projects()`
+  looks one level below the session root for direct child directories that carry their own
+  `.claude/jev/`, and `main()` runs `touched_files()` once per project, matching each
+  project's own `rules.json`/`tools.json` against its own change list. This is why a sibling's
+  `git diff`-scoped `.claude/jev/` config only matters if the sibling sits one level directly
+  under the session root — it is not a recursive search. The session root is always project
+  index 0 and keeps its rule/tool ids unprefixed; a sibling at index `i` gets its `when_jev`
+  rule ids prefixed `rule_s{i}_` and its tool keys prefixed `s{i}:` in the combined Jev
+  request, so ids never collide across projects and a workspace with no siblings behaves
+  exactly as before.
 
 ## Conditional context
 

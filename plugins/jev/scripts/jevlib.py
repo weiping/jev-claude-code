@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parents[1])
@@ -45,14 +46,60 @@ def _merge(base: dict, over: dict) -> dict:
 CFG = _merge(_load(PLUGIN_ROOT / "config" / "default.json", {}), _load(PROJECT_JEV / "config.json", {}))
 
 
-def project_file(name: str, default):
+@dataclass
+class Resolved:
+    """The `.claude/jev/` a single hook invocation should use, and its merged config."""
+    project: Path
+    project_jev: Path
+    state: Path
+    logs: Path
+    cfg: dict
+
+
+def resolve(hint: str | Path | None = None) -> Resolved:
+    """Re-resolve the nearest `.claude/jev/` starting from `hint`, instead of the module-level
+    PROJECT fixed once at import time from CLAUDE_PROJECT_DIR.
+
+    `CLAUDE_PROJECT_DIR` is set once per session and never changes, even when a Bash command
+    or a dispatched Agent operates inside a sibling checkout of a meta-workspace — a directory
+    that is its own independent git repository, `.gitignore`d out of the session's project
+    root rather than part of its git tree (so `git diff` scoped to the session root can never
+    see it either; see prompt_context.py's `jev_projects()` for the other half of this). Pass
+    the hook's own `cwd` (from the hook payload) as `hint` so a command or dispatch that runs
+    inside such a sibling picks up *that sibling's own* `.claude/jev/config.json`, state and
+    logs, rather than always the session-wide one.
+
+    Falls back to the session-wide PROJECT when no hint is given, the hint cannot be resolved,
+    or no ancestor of the hint carries `.claude/jev/`.
+    """
+    project = PROJECT
+    if hint:
+        p = Path(hint)
+        try:
+            if p.is_file():
+                p = p.parent
+            p = p.resolve()
+        except OSError:
+            p = None
+        if p is not None:
+            for d in (p, *p.parents):
+                if (d / ".claude" / "jev").is_dir():
+                    project = d
+                    break
+    project_jev = project / ".claude" / "jev"
+    cfg = _merge(_load(PLUGIN_ROOT / "config" / "default.json", {}), _load(project_jev / "config.json", {}))
+    return Resolved(project=project, project_jev=project_jev,
+                     state=project_jev / "state", logs=project_jev / "logs", cfg=cfg)
+
+
+def project_file(name: str, default, project_jev: Path | None = None):
     """rules.json / tools.json live in the project; missing means the feature is off."""
-    return _load(PROJECT_JEV / name, default)
+    return _load((project_jev or PROJECT_JEV) / name, default)
 
 
-def mode() -> str:
+def mode(cfg: dict | None = None) -> str:
     """shadow: ask Jev and log, never change Claude Code's behavior. enforce: act on answers."""
-    return os.environ.get("JEV_MODE", CFG.get("mode", "shadow"))
+    return os.environ.get("JEV_MODE", (cfg if cfg is not None else CFG).get("mode", "shadow"))
 
 
 def read_input() -> dict:
@@ -73,27 +120,29 @@ def _ensure(d: Path) -> None:
         ignore.write_text("*\n", encoding="utf-8")
 
 
-def state_read(name: str, default=None):
-    p = STATE / name
+def state_read(name: str, default=None, base: Path | None = None):
+    p = (base or STATE) / name
     if not p.exists():
         return default
     text = p.read_text(encoding="utf-8")
     return json.loads(text) if name.endswith(".json") else text
 
 
-def state_write(name: str, value) -> Path:
-    _ensure(STATE)
-    p = STATE / name
+def state_write(name: str, value, base: Path | None = None) -> Path:
+    d = base or STATE
+    _ensure(d)
+    p = d / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(value, ensure_ascii=False, indent=2) if name.endswith(".json") else value,
                  encoding="utf-8")
     return p
 
 
-def log(event: dict) -> None:
-    _ensure(LOGS)
-    event = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode(), **event}
-    with (LOGS / "decisions.jsonl").open("a", encoding="utf-8") as f:
+def log(event: dict, base: Path | None = None, cfg: dict | None = None) -> None:
+    d = base or LOGS
+    _ensure(d)
+    event = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode(cfg), **event}
+    with (d / "decisions.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
 
 
@@ -128,13 +177,14 @@ def _mock_handler(request):
     return httpx2.Response(200, json=payload)
 
 
-def ask(hook: str, state, questions: dict):
+def ask(hook: str, state, questions: dict, cfg: dict | None = None, base: Path | None = None):
     """One Jev request; the server evaluates all questions in parallel."""
     from typesafe_sdk import RetryPolicy, TypeSafeClient
 
-    budget = CFG.get("timeout_s", 8)
+    c = cfg if cfg is not None else CFG
+    budget = c.get("timeout_s", 8)
     # 单次请求和含重试的总耗时都限制在预算内，保证比 hook 的超时先结束
-    kwargs = {"model": CFG["model"], "timeout": budget / 2,
+    kwargs = {"model": c["model"], "timeout": budget / 2,
               "retry": RetryPolicy(max_retries=1, timeout=budget)}
     if os.environ.get("JEV_MOCK"):
         import httpx2
@@ -144,7 +194,7 @@ def ask(hook: str, state, questions: dict):
         res = client.system_one(state=state, questions=questions)
     log({"hook": hook, "model": res.model, "latency_ms": int((time.time() - started) * 1000),
          "input_tokens": res.usage.input_tokens, "questions": list(questions),
-         "answers": {k: v.model_dump() for k, v in res.answers.items()}})
+         "answers": {k: v.model_dump() for k, v in res.answers.items()}}, base=base, cfg=cfg)
     return res.answers
 
 

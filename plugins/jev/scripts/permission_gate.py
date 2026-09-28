@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import jevlib  # noqa: E402
 
-CFG = jevlib.CFG["permission"]
 SCRIPT_RUNNERS = {"python", "python3", "bash", "sh", "node", "ruby"}
 
 
@@ -18,10 +17,10 @@ def decision(kind: str, reason: str) -> dict:
                                    "permissionDecisionReason": reason}}
 
 
-def is_simple_readonly(cmd: str) -> bool:
+def is_simple_readonly(cmd: str, cfg: dict) -> bool:
     if re.search(r"[;&|<>`$()]", cmd):  # 复合命令、重定向、替换一律交给后面判断
         return False
-    return any(cmd == p or cmd.startswith(p + " ") for p in CFG["readonly_commands"])
+    return any(cmd == p or cmd.startswith(p + " ") for p in cfg["readonly_commands"])
 
 
 def script_text(cmd: str, cwd: str) -> str:
@@ -41,21 +40,27 @@ def main() -> None:
     data = jevlib.read_input()
     cmd = data["tool_input"].get("command", "")
     cwd = data.get("cwd", str(jevlib.PROJECT))
+    # 这次命令实际发生在哪，就用哪个 `.claude/jev/`——见 jevlib.resolve() 的说明：
+    # CLAUDE_PROJECT_DIR 整个会话固定不变，但一个元工作区里的子仓是各自独立的 git 仓库，
+    # 命令可能是在子仓目录下跑的，理应吃子仓自己的 config.json，而不是永远吃会话根的。
+    r = jevlib.resolve(cwd)
+    CFG = r.cfg["permission"]
 
     # 1. 确定的规则，代码说了算
     for pat in CFG["deny_patterns"] + CFG.get("extra_deny_patterns", []):
         if re.search(pat, cmd):
-            jevlib.log({"hook": "permission_gate", "command": cmd, "action": "deny", "by": "rule", "rule": pat})
+            jevlib.log({"hook": "permission_gate", "command": cmd, "action": "deny", "by": "rule", "rule": pat},
+                       base=r.logs, cfg=r.cfg)
             jevlib.emit(decision("deny", f"Blocked by project rule: command matches `{pat}`.")
-                        if jevlib.mode() == "enforce" else None)
-    if is_simple_readonly(cmd):
+                        if jevlib.mode(r.cfg) == "enforce" else None)
+    if is_simple_readonly(cmd, CFG):
         jevlib.emit(None)  # 交给 Claude Code 自己的权限流程
 
     # 2. 模糊判断，一次请求并行问完
     from typesafe_sdk import Choice, Noul
 
-    state = {"user_request": jevlib.state_read("last_prompt.txt", "(unknown)"),
-             "command": cmd, "cwd": cwd, "repo_root": str(jevlib.PROJECT),
+    state = {"user_request": jevlib.state_read("last_prompt.txt", "(unknown)", base=r.state),
+             "command": cmd, "cwd": cwd, "repo_root": str(r.project),
              "script": script_text(cmd, cwd) or "(no script file)"}
     questions = {
         "decision": Choice(
@@ -69,9 +74,9 @@ def main() -> None:
         "network_requested": Noul(instructions="`user_request` explicitly asks for network access, installing packages, or deploying."),
     }
     try:
-        a = jevlib.ask("permission_gate", state, questions)
+        a = jevlib.ask("permission_gate", state, questions, cfg=r.cfg, base=r.logs)
     except Exception as e:  # Jev 不可用时不做决定，交回正常权限流程
-        jevlib.log({"hook": "permission_gate", "command": cmd, "error": repr(e)})
+        jevlib.log({"hook": "permission_gate", "command": cmd, "error": repr(e)}, base=r.logs, cfg=r.cfg)
         jevlib.emit(None)
 
     d = a["decision"]
@@ -86,8 +91,8 @@ def main() -> None:
     else:
         out = decision("ask", f"Jev: {d.choice} ({d.confidence:.2f}), confirmation needed")
     jevlib.log({"hook": "permission_gate", "command": cmd,
-                "action": out["hookSpecificOutput"]["permissionDecision"], "by": "jev"})
-    jevlib.emit(out if jevlib.mode() == "enforce" else None)
+                "action": out["hookSpecificOutput"]["permissionDecision"], "by": "jev"}, base=r.logs, cfg=r.cfg)
+    jevlib.emit(out if jevlib.mode(r.cfg) == "enforce" else None)
 
 
 if __name__ == "__main__":

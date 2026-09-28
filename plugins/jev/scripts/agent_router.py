@@ -10,7 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import jevlib  # noqa: E402
 
-CFG = jevlib.CFG["routing"]
 SENSITIVITY = [
     "Public docs, tests, or open-source dependencies only.",
     "Ordinary application code.",
@@ -31,7 +30,13 @@ def main() -> None:
     ti = data["tool_input"]
     task = f"{ti.get('description', '')}\n{ti.get('prompt', '')}"[:6000]
     agent = ti.get("subagent_type", "general-purpose")
-    registry = jevlib.state_read("subgoals.json", {})
+    cwd = data.get("cwd", str(jevlib.PROJECT))
+    # 跟 permission_gate 同样的道理：这次派发是在哪个目录下发起的，就用哪个 `.claude/jev/`
+    # （见 jevlib.resolve() 的说明）。agent_done.py 必须用同一个 hint 算出同一个 state 目录，
+    # 否则 dedupe 登记表和这里对不上。
+    r = jevlib.resolve(cwd)
+    CFG = r.cfg["routing"]
+    registry = jevlib.state_read("subgoals.json", {}, base=r.state)
     recent = dict(list(registry.items())[-50:])  # choice 最多 255 个选项，这里只比最近 50 个
 
     from typesafe_sdk import Choice, Score
@@ -50,9 +55,10 @@ def main() -> None:
         questions["dup"] = Choice(instructions="Which existing subgoal already covers `task`, if any?",
                                   criteria=crit)
     try:
-        a = jevlib.ask("agent_router", {"task": task, "requested_agent": agent}, questions)
+        a = jevlib.ask("agent_router", {"task": task, "requested_agent": agent}, questions,
+                       cfg=r.cfg, base=r.logs)
     except Exception as e:
-        jevlib.log({"hook": "agent_router", "error": repr(e)})
+        jevlib.log({"hook": "agent_router", "error": repr(e)}, base=r.logs, cfg=r.cfg)
         jevlib.emit(None)
 
     level = jevlib.ceil_level(a["sensitivity"].score)  # 期望分向上取整，安全判断宁可保守
@@ -78,10 +84,11 @@ def main() -> None:
     action = result["hookSpecificOutput"]["permissionDecision"] if result else "pass"
     if action != "deny":
         registry[data.get("tool_use_id", str(len(registry)))] = {"text": task[:600], "status": "running"}
-        jevlib.state_write("subgoals.json", registry)
+        jevlib.state_write("subgoals.json", registry, base=r.state)
     jevlib.log({"hook": "agent_router", "agent": agent, "tier": tier.choice, "level": level,
-                "action": action, "downgraded": bool(result and "updatedInput" in result["hookSpecificOutput"])})
-    jevlib.emit(result if jevlib.mode() == "enforce" else None)
+                "action": action, "downgraded": bool(result and "updatedInput" in result["hookSpecificOutput"])},
+               base=r.logs, cfg=r.cfg)
+    jevlib.emit(result if jevlib.mode(r.cfg) == "enforce" else None)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import jevlib  # noqa: E402
 
-CFG = jevlib.CFG["ladder"]
 LADDER = {
     "full": "Directly relevant to `user_request`; the agent needs these exact lines.",
     "short": "Possibly useful; a two-line excerpt is enough.",
@@ -19,8 +18,8 @@ LADDER = {
 UP = {"hide": "short", "short": "full", "full": "full"}
 
 
-def chunk(lines: list[str]) -> list[tuple[int, list[str]]]:
-    size = max(CFG["chunk_lines"], -(-len(lines) // CFG["max_chunks"]))  # 块数不超过上限
+def chunk(lines: list[str], cfg: dict) -> list[tuple[int, list[str]]]:
+    size = max(cfg["chunk_lines"], -(-len(lines) // cfg["max_chunks"]))  # 块数不超过上限
     return [(i, lines[i:i + size]) for i in range(0, len(lines), size)]
 
 
@@ -28,14 +27,19 @@ def main() -> None:
     data = jevlib.read_input()
     resp = data.get("tool_response") or {}
     stdout = resp.get("stdout") or ""
+    cwd = data.get("cwd", str(jevlib.PROJECT))
+    # 跟同一次 Bash 调用的 permission_gate 用同一个 hint 解析——这样 state 里的
+    # last_prompt.txt/outputs/ 落在同一个 `.claude/jev/` 下，recall 也指向那里。
+    r = jevlib.resolve(cwd)
+    CFG = r.cfg["ladder"]
     lines = stdout.splitlines()
     if len(lines) < CFG["min_lines"] or resp.get("isImage"):
         jevlib.emit(None)
 
     from typesafe_sdk import Choice, Noul
 
-    chunks = chunk(lines)
-    state = {"user_request": jevlib.state_read("last_prompt.txt", "(unknown)"),
+    chunks = chunk(lines, CFG)
+    state = {"user_request": jevlib.state_read("last_prompt.txt", "(unknown)", base=r.state),
              "command": data["tool_input"].get("command", ""),
              "chunks": {f"c{n}": "\n".join(body)[:3000] for n, (_, body) in enumerate(chunks)}}
     questions = {f"c{n}": Choice(
@@ -43,15 +47,15 @@ def main() -> None:
         criteria=LADDER) for n in range(len(chunks))}
     questions["has_error"] = Noul(instructions="Any chunk contains an error, failure, or stack trace.")
     try:
-        a = jevlib.ask("output_ladder", state, questions)
+        a = jevlib.ask("output_ladder", state, questions, cfg=r.cfg, base=r.logs)
     except Exception as e:
-        jevlib.log({"hook": "output_ladder", "error": repr(e)})
+        jevlib.log({"hook": "output_ladder", "error": repr(e)}, base=r.logs, cfg=r.cfg)
         jevlib.emit(None)
     if a["has_error"].noul >= 0.5:  # 有报错时整段原样保留
         jevlib.emit(None)
 
     key = data.get("tool_use_id", "last").replace("/", "_")
-    saved = jevlib.state_write(f"outputs/{key}.txt", stdout)
+    saved = jevlib.state_write(f"outputs/{key}.txt", stdout, base=r.state)
 
     parts, hidden = [], []
     for n, (start, body) in enumerate(chunks):
@@ -68,8 +72,8 @@ def main() -> None:
     footer = (f"\n[jev] {len(lines)} lines total; hidden ranges: {', '.join(hidden) or 'none'}. "
               f"Full output: {jevlib.PYTHON} {jevlib.PLUGIN_ROOT}/scripts/recall.py {saved} [START END]")
     jevlib.log({"hook": "output_ladder", "lines": len(lines), "chars_before": len(stdout),
-                "chars_after": kept, "hidden_ranges": hidden})
-    if jevlib.mode() != "enforce":
+                "chars_after": kept, "hidden_ranges": hidden}, base=r.logs, cfg=r.cfg)
+    if jevlib.mode(r.cfg) != "enforce":
         jevlib.emit(None)
     jevlib.emit({"hookSpecificOutput": {
         "hookEventName": "PostToolUse",

@@ -164,4 +164,62 @@ r = subprocess.run([sys.executable, str(SCRIPTS / "stats.py")], capture_output=T
 assert r.returncode == 0 and "Jev calls" in r.stdout
 print("ok  snapshot, jev_ask (from a subdirectory), stats run; a broken payload exits 0 with no decision")
 print(r.stdout)
+
+# 6. Meta-workspace siblings: a sibling directory with its OWN git repo and its OWN
+#    .claude/jev/, sitting inside the same CLAUDE_PROJECT_DIR (the common "meta-repo with
+#    independent, .gitignore'd sibling checkouts" shape). CLAUDE_PROJECT_DIR never changes,
+#    so hooks must resolve the sibling's own config/rules/tools/state from `cwd`, not from
+#    the fixed session root.
+sib = tmp / "sibling"
+sib.mkdir()
+subprocess.run(["git", "init", "-q"], cwd=sib, check=True)
+(sib / "svc.py").write_text("print('hi')\n")
+(sib / "SVC_NOTES.md").write_text("Restart with `systemctl restart svc` after editing.\n")
+sib_jev = sib / ".claude" / "jev"
+sib_jev.mkdir(parents=True)
+(sib_jev / "rules.json").write_text(json.dumps([
+    {"id": "svc-gotchas", "when_files": ["svc.py"], "load": "SVC_NOTES.md"}]))
+(sib_jev / "tools.json").write_text(json.dumps({
+    "run_svc": {"what": "Run the sibling service.", "how": "python3 svc.py"},
+    "none": {"what": "No sibling tool is relevant.", "how": ""}}))
+(sib_jev / "config.json").write_text(json.dumps({"permission": {"extra_deny_patterns": ["rm -rf sibling-data"]}}))
+
+# 6a. permission_gate: a command whose `cwd` is inside the sibling picks up the sibling's
+#     own extra_deny_patterns — a rule the meta-root's own config.json never declared, and
+#     which must NOT fire when the same command runs with cwd back at the meta-root.
+assert decision(run("permission_gate", {**pre, "cwd": str(sib),
+                                        "tool_input": {"command": "rm -rf sibling-data"}})) == "deny"
+assert decision(run("permission_gate", {**pre, "cwd": str(tmp),
+                                        "tool_input": {"command": "rm -rf sibling-data"}})) != "deny"
+# The built-in deny_patterns (from config/default.json) still apply everywhere, sibling included.
+assert decision(run("permission_gate", {**pre, "cwd": str(sib), "tool_input": {"command": "cat .env"}})) == "deny"
+print("ok  permission_gate: a sibling's own extra_deny_patterns fires only when cwd is inside it")
+
+# 6b. prompt_context: the sibling's own rules/tools fire from ITS OWN changed files, which
+#     `git diff`/`git ls-files` scoped to the meta-root can never see (separate git repo).
+o = run("prompt_context", ups, {"tool": {"choice": "s1:run_svc", "confidence": 0.7,
+                                         "probabilities": {"bench": 0.1, "db_seed": 0.05, "none": 0.1,
+                                                            "s1:run_svc": 0.8}}})
+ctx = o["hookSpecificOutput"]["additionalContext"]
+assert "SVC_NOTES.md" in ctx and "run_svc" in ctx
+print("ok  prompt_context: a sibling's own rules/tools fire from its own (untracked) files")
+
+# 6c. agent_router + agent_done: dedupe state for a dispatch made with cwd inside the sibling
+#     lives in the sibling's own state dir, not the meta-root's — otherwise agent_done could
+#     never find the subgoal agent_router just registered.
+o = run("agent_router", {**ag, "cwd": str(sib), "tool_use_id": "sib1", "tool_input": {
+    "description": "Restart svc", "prompt": "Restart the sibling service after the config edit",
+    "subagent_type": "general-purpose"}},
+    {"tier": {"choice": "frontier", "confidence": 0.6, "probabilities": {"cheap": 0.4, "frontier": 0.6}},
+     "sensitivity": {"score": 0.4, "confidence": 0.8, "legend": {"0": "a", "1": "b", "2": "c", "3": "d"},
+                     "probabilities": {"0": 0.8, "1": 0.2, "2": 0.0, "3": 0.0}}})
+assert o is None  # "pass": 既不 cheap 也不匹配任何 deny 分支
+assert json.loads((sib / ".claude/jev/state/subgoals.json").read_text())["sib1"]["status"] == "running"
+assert not (tmp / ".claude/jev/state/subgoals.json").read_text().count('"sib1"')
+run("agent_done", {**base, "hook_event_name": "PostToolUse", "tool_name": "Agent", "cwd": str(sib),
+                   "tool_use_id": "sib1", "tool_input": {},
+                   "tool_response": {"status": "completed", "resolvedModel": "claude-opus",
+                                     "content": [{"type": "text", "text": "Restarted."}]}})
+assert json.loads((sib / ".claude/jev/state/subgoals.json").read_text())["sib1"]["status"] == "done"
+print("ok  agent_router + agent_done: dedupe state for a sibling-scoped dispatch stays in the sibling")
 shutil.rmtree(tmp)
