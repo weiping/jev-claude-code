@@ -23,6 +23,10 @@ git add -A && git -c user.email=e@e -c user.name=e commit -qm init
 echo 'export const tax = 0.1;' >> src/cart.tsx
 
 export ANTHROPIC_BASE_URL=http://127.0.0.1:$PORT ANTHROPIC_API_KEY=sk-ant-dummy CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# 开发机可能正用代理或自定义模型跑 Claude（ANTHROPIC_MODEL、ANTHROPIC_DEFAULT_*_MODEL、
+# CLAUDE_CODE_SUBAGENT_MODEL……）。别让它们漏进这个隔离会话：降级断言认的是 haiku。
+unset ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_REASONING_MODEL CLAUDE_CODE_SUBAGENT_MODEL
+while IFS= read -r v; do unset "$v"; done < <(env | sed -n 's/^\(ANTHROPIC_DEFAULT_[A-Za-z0-9_]*\)=.*/\1/p')
 echo '[{"text": "warm-up"}]' > "$WORK/script.json"
 python3 "$REPO/tests/e2e_mock_api.py" "$PORT" "$WORK/script.json" "$WORK/api.log" & MOCK=$!
 sleep 1
