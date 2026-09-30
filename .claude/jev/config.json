@@ -2,6 +2,7 @@
   "mode": "enforce",
   "permission": {
     "allow_confidence": 0.8,
+    "extra_allow_patterns": ["^git push\\b"],
     "extra_deny_patterns": ["(echo|printf|printenv|env)\\b[^|;&]*TYPESAFE_API_KEY"]
   }
 }
