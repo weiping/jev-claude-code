@@ -20,6 +20,11 @@ the config, or the install flow.
   `setup.log` and exits 0; nothing tells the user. Set `JEV_PYTHON` to pick an interpreter.
 - **Plugins load at session start.** Installing, updating or enabling the plugin does nothing to
   sessions that are already running.
+- **A lost `enabledPlugins` entry disables the plugin with no trace.** A batch plugin change
+  can leave `jev@jev-engineering` missing from `enabledPlugins` in `~/.claude/settings.json`;
+  sessions then start fine but no hook runs and nothing is written to `decisions.jsonl`.
+  If the log goes silent across sessions, check that entry and
+  `claude plugin enable jev@jev-engineering`.
 - **The installed plugin is a cached copy.** Claude Code runs it from
   `~/.claude/plugins/cache/jev-engineering/jev/<version>/`, not from this repository. Editing
   files here changes nothing until you push and update (see `CONTRIBUTING.md`).
@@ -46,6 +51,17 @@ the config, or the install flow.
 - **Rule denies are logged but not enforced in shadow mode**, including `deny_patterns`.
 - **`JEV_MODE` in the environment wins over `"mode"` in any config file.**
 
+## Enforce mode
+
+- **The egress branch denies before Jev's own decision is used.** When `egress >
+  egress_threshold` and `network_requested < 0.5`, the command is denied for "network access"
+  even if Jev's `decision` was `allow` with high confidence. `network_requested` is judged from
+  the raw text in `last_prompt.txt`, not from the conversation: a terse imperative ("推送",
+  "ship it") routinely scores just under 0.5, so `git push` gets denied on a prompt that
+  clearly asked for a push. Retrying the identical command re-sends the same prompt and denies
+  again. Put routine network commands in the project's `extra_allow_patterns`
+  (e.g. `"^git push\\b"`) — allow rules run before the egress branch and cost no Jev call.
+
 ## Configuration
 
 - **Dicts merge, lists replace.** The project `.claude/jev/config.json` is deep-merged over
@@ -59,7 +75,11 @@ the config, or the install flow.
   not (the gate does send the script text to Jev, which may still deny it).
 - **Any shell metacharacter disables the readonly shortcut.** A command containing
   `; & | < > \` $ ( )` is never "simple readonly", so `ls | head` costs a Jev call while `ls`
-  does not.
+  does not. The metacharacter check is a raw string scan — quoting does not help, so
+  `gh run view 1 --jq '.jobs[] | …'` loses the shortcut to the `|` inside the quotes. Worse in
+  enforce mode: the compound then reaches Jev and a network-flavored readonly command
+  (`gh run watch 1 >/dev/null; gh run view 1`) is denied by the egress branch. Run
+  `gh run view`/`list`/`watch` bare, one command per call.
 - **The project root comes from `CLAUDE_PROJECT_DIR`, then `git rev-parse --show-toplevel`.**
   Running a script by hand from a nested repository picks the nested repo's `.claude/jev/`.
   Set `CLAUDE_PROJECT_DIR` when you run `stats.py` or `snapshot.py` manually.
