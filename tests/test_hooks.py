@@ -73,7 +73,8 @@ jev_dir = tmp / ".claude/jev"
     "bench": {"what": "Run parser micro-benchmarks.", "how": "python3 tools/bench.py --help"},
     "db_seed": {"what": "Reset and seed the local database.", "how": "make db-seed (destructive)"},
     "none": {"what": "No project tool is relevant.", "how": ""}}))
-(jev_dir / "config.json").write_text(json.dumps({"permission": {"extra_deny_patterns": ["secrets/"]}}))
+(jev_dir / "config.json").write_text(json.dumps(
+    {"permission": {"extra_deny_patterns": ["secrets/"], "extra_allow_patterns": ["^cp "]}}))
 
 # 1. Conditional context
 o = run("prompt_context", ups, {"rule_prose-voice": {"noul": 0.92}, "rule_db-migrations": {"noul": 0.03},
@@ -102,7 +103,19 @@ o = run("permission_gate", {**pre, "tool_input": {"command": "npm publish"}},
         {"decision": {"choice": "allow", "confidence": 0.55, "probabilities": {"allow": 0.55, "ask": 0.4, "deny": 0.05}}})
 assert decision(o) == "ask"
 assert run("permission_gate", {**pre, "tool_input": {"command": "cat .env"}}, mode="shadow") is None
-print("ok  permission_gate: rule + project rule deny, .env.example ok, egress deny, allow, ask, shadow silent")
+# allow 层：deny 之后、readonly 之前；命中直接放行，不花 Jev 调用
+jev_calls = calls("permission_gate")
+assert decision(run("permission_gate", {**pre, "tool_input": {"command": "git add -A"}})) == "allow"
+assert decision(run("permission_gate", {**pre, "tool_input": {"command": "git commit -m 'fix: x'"}})) == "allow"
+assert decision(run("permission_gate", {**pre, "tool_input": {"command": "cp a.txt b.txt"}})) == "allow"  # extra_allow
+assert run("permission_gate", {**pre, "tool_input": {"command": "git add -A"}}, mode="shadow") is None
+assert run("permission_gate", {**pre, "tool_input": {"command": "gh run view 123"}}) is None
+assert run("permission_gate", {**pre, "tool_input": {"command": "npm view react"}}) is None
+assert run("permission_gate", {**pre, "tool_input": {"command": "git branch"}}) is None
+assert calls("permission_gate") == jev_calls  # 上面这些都没进 Jev
+# `cp secrets/a.key /tmp`（上面已断言 deny）同时命中 extra_allow(`^cp `)和 deny(`secrets/`)：deny 永远优先
+print("ok  permission_gate: rule + project rule deny, .env.example ok, egress deny, allow, ask, shadow silent,")
+print("    allow_patterns bypass Jev, deny beats allow, expanded readonly (gh/npm/git branch)")
 
 # 3. Output ladder
 stdout = "\n".join(f"line {i}" for i in range(1, 201))

@@ -51,7 +51,9 @@ the config, or the install flow.
 - **Dicts merge, lists replace.** The project `.claude/jev/config.json` is deep-merged over
   `config/default.json`, but a list replaces the default list entirely. Setting
   `permission.deny_patterns` in a project drops the built-in `.ssh`, `.env`, `curl | sh` and
-  `rm -rf /` rules. Add project rules to `permission.extra_deny_patterns` instead.
+  `rm -rf /` rules. Add project rules to `permission.extra_deny_patterns` instead. The same
+  applies to `permission.allow_patterns` (default: `git add`/`git commit`) — extend it with
+  `permission.extra_allow_patterns`. Deny patterns always win over allow patterns.
 - **Deny patterns match the command string only.** They are `re.search`ed against the raw
   Bash command. `cat .env` is blocked; `python3 load.py` that reads `.env` inside the script is
   not (the gate does send the script text to Jev, which may still deny it).

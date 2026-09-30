@@ -55,8 +55,8 @@ or for a single session: `JEV_MODE=enforce claude`.
 ## Configuration
 
 Defaults live in `plugins/jev/config/default.json`; `.claude/jev/config.json` in a project is
-deep-merged on top (lists are replaced, so add project deny rules under
-`permission.extra_deny_patterns`).
+deep-merged on top (lists are replaced, so add project rules under `permission.extra_deny_patterns`
+or `permission.extra_allow_patterns`).
 
 ## Develop and test
 

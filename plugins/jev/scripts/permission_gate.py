@@ -53,6 +53,12 @@ def main() -> None:
                        base=r.logs, cfg=r.cfg)
             jevlib.emit(decision("deny", f"Blocked by project rule: command matches `{pat}`.")
                         if jevlib.mode(r.cfg) == "enforce" else None)
+    for pat in CFG["allow_patterns"] + CFG.get("extra_allow_patterns", []):
+        if re.search(pat, cmd):  # deny 永远优先：上面的循环已经有机会先拦下
+            jevlib.log({"hook": "permission_gate", "command": cmd, "action": "allow", "by": "rule", "rule": pat},
+                       base=r.logs, cfg=r.cfg)
+            jevlib.emit(decision("allow", f"Allowed by project rule: command matches `{pat}`.")
+                        if jevlib.mode(r.cfg) == "enforce" else None)
     if is_simple_readonly(cmd, CFG):
         jevlib.emit(None)  # 交给 Claude Code 自己的权限流程
 
